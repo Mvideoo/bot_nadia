@@ -241,8 +241,7 @@ async def handle_answer(callback: types.CallbackQuery, state: FSMContext):
         quiz_data['correct_answers'] += 1
         feedback = "✅ Правильно!"
     else:
-        correct_option = question['options'][question['correct']]
-        feedback = f"❌ Неверно. Правильный ответ: {correct_option}"
+        feedback = f"❌ Неверно."
 
     await callback.message.answer(feedback)
 
