@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 
 def get_timezone_keyboard():
@@ -19,6 +19,10 @@ def get_timezone_keyboard():
     ]
     keyboard.add(*buttons)
     return keyboard
+
+def get_cancel_kb():
+    return ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton('❌ Отмена'))
+
 def get_age_group_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
