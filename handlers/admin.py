@@ -13,6 +13,7 @@ from data_base.models.user import User
 from keyboards import quest_management_kb
 import logging
 import re
+from keyboards.common import get_cancel_kb
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,6 @@ async def schedule_broadcast(message_text: str, scheduled_time: str):
 
     except Exception as e:
         logger.error(f"Ошибка в процессе рассылки: {str(e)}")
-
 
 class SupportAnswerState(StatesGroup):
     waiting_for_answer = State()
@@ -175,12 +175,20 @@ async def admin_open_tickets(message: types.Message):
 async def start_answer_ticket(callback: types.CallbackQuery, state: FSMContext):
     ticket_id = int(callback.data.split('_')[2])
     await state.update_data(ticket_id=ticket_id)
-    await callback.message.answer(f"✍️ Введите ответ на обращение ID:{ticket_id}:")
+    await callback.message.answer(
+        f"✍️ Введите ответ на обращение #{ticket_id}:",
+        reply_markup=get_cancel_kb()
+    )
     await SupportAnswerState.waiting_for_answer.set()
     await callback.answer()
 
+
 @dp.message_handler(state=SupportAnswerState.waiting_for_answer, active_role='admin')
 async def process_support_answer(message: types.Message, state: FSMContext):
+    if message.text == '❌ Отмена':
+        await cancel_any_action(message, state)
+        return
+
     data = await state.get_data()
     ticket_id = data['ticket_id']
     admin_id = message.from_user.id
@@ -209,6 +217,8 @@ class AddQuestState(StatesGroup):
     title = State()
     description = State()
     time = State()
+    confirm = State()  # Новое состояние для подтверждения
+
 
 
 async def admin_manage_quests(message: types.Message):
@@ -245,36 +255,96 @@ async def admin_list_quests(message: types.Message):
     await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
 
 
+async def process_quest_confirm(message: types.Message, state: FSMContext):
+    if message.text == '❌ Отмена':
+        await cancel_quest_creation(message, state)
+        return
+
+    if message.text == '✅ Подтвердить':
+        data = await state.get_data()
+        await User.add_quest(data['title'], data['description'], data['time'])
+        await message.answer(f"✅ Квест '{data['title']}' добавлен!", reply_markup=admin_kb.kb_admin)
+    else:
+        await message.answer("Используйте кнопки для подтверждения или отмены")
+        return
+
+    await state.finish()
+
+async def cancel_quest_creation(message: types.Message, state: FSMContext):
+    await state.finish()
+    await message.answer("❌ Создание квеста отменено", reply_markup=admin_kb.kb_admin)
+
 async def admin_add_quest(message: types.Message):
-    await AddQuestState.title.set()
-    await message.answer("Введите название квеста:")
+    await AddQuestState.name.set()
+    await message.answer("Введите название квеста:", reply_markup=get_cancel_kb())
 
 
 async def process_quest_title(message: types.Message, state: FSMContext):
+    if message.text == '❌ Отмена':
+        await cancel_quest_creation(message, state)
+        return
+
     await state.update_data(title=message.text)
     await AddQuestState.next()
-    await message.answer("Введите описание квеста:")
+    await message.answer("Введите описание квеста:", reply_markup=get_cancel_kb())
 
 
 async def process_quest_description(message: types.Message, state: FSMContext):
+    if message.text == '❌ Отмена':
+        await cancel_quest_creation(message, state)
+        return
+
     await state.update_data(description=message.text)
     await AddQuestState.next()
-    await message.answer("Введите время отправки по МСК (например, 10:00):")
+    await message.answer("Введите время отправки по МСК (например, 10:00):", reply_markup=get_cancel_kb())
 
 
 async def process_quest_time(message: types.Message, state: FSMContext):
+    if message.text == '❌ Отмена':
+        await cancel_quest_creation(message, state)
+        return
+
     time_str = message.text.strip()
 
     # Проверка формата времени
     if not re.match(r'^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$', time_str):
-        await message.answer("❌ Неверный формат времени. Используйте ЧЧ:ММ (например, 09:30)")
+        await message.answer("❌ Неверный формат времени. Используйте ЧЧ:ММ (например, 09:30)\nПопробуйте снова:")
         return
 
-    data = await state.get_data()
-    await User.add_quest(data['title'], data['description'], time_str)
-    await state.finish()
-    await message.answer(f"✅ Квест '{data['title']}' добавлен, будет отправляться в {time_str} МСК")
+    await state.update_data(time=time_str)
 
+    # Показываем подтверждение
+    data = await state.get_data()
+    confirm_text = (
+        "✅ Подтвердите создание квеста:\n\n"
+        f"<b>Название:</b> {data['title']}\n"
+        f"<b>Описание:</b> {data['description']}\n"
+        f"<b>Время отправки:</b> {data['time']} МСК"
+    )
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    keyboard.add(KeyboardButton('✅ Подтвердить'), KeyboardButton('❌ Отмена'))
+
+    await AddQuestState.next()
+    await message.answer(confirm_text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@dp.message_handler(lambda message: message.text == '❌ Отмена', state='*')
+async def cancel_any_action(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is None:
+        return
+
+    # Определяем, какое действие отменяем
+    if 'AddQuestState' in current_state:
+        action_name = "создание квеста"
+    elif 'SupportAnswerState' in current_state:
+        action_name = "ответ на обращение"
+    else:
+        action_name = "действие"
+
+    await state.finish()
+    await message.answer(f"❌ {action_name.capitalize()} отменено", reply_markup=admin_kb.kb_admin)
 
 @dp.callback_query_handler(lambda c: c.data.startswith('toggle_quest_'))
 async def toggle_quest(callback: types.CallbackQuery):
@@ -430,3 +500,4 @@ def register_handlers_admin(dp):
     dp.register_message_handler(admin_broadcast, text='📢 Рассылка', active_role='admin')
     dp.register_message_handler(admin_student_mode, text='🎓 Режим ученика', active_role='admin')
     dp.register_message_handler(back_to_admin_panel, text='🔙 В админ-панель', active_role='admin')
+    dp.register_message_handler(cancel_any_action, lambda message: message.text == '❌ Отмена', state='*')
