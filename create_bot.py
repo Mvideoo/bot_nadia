@@ -9,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-API_TOKEN = '7447691877:AAFuIJx_EM7WsVEsAyTzkrw19ZMmM4pxYcI'
+API_TOKEN = '7736918579:AAERfjJpxbgwu8yfRj3G0BbvxRJkDqghujk'
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
