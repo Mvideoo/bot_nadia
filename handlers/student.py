@@ -586,7 +586,7 @@ async def show_rating(message: types.Message):
         await message.answer("🏆 Рейтинг пока пуст. Будьте первым!")
         return
 
-    response = "🏆 <b>Топ-5 учеников по финкоинам:</b>\n\n"
+    response = "🏆 <b>Топ-5 учеников по монетам:</b>\n\n"
 
     # Формируем рейтинг
     for i, user in enumerate(top_users):
